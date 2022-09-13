@@ -218,7 +218,7 @@ impl VulkanContext {
         );
 
         let camera_position = camera.translation;
-        let view = camera.compute_matrix();
+        let view = camera.compute_matrix().inverse();
 
         let vp_buffer = {
             let data = shaders::vs::ty::ViewProjection_Data {

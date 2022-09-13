@@ -29,21 +29,30 @@ fn setup(
     });
 
     commands.spawn_bundle(PbrBundle {
-        mesh: meshes.add(Mesh::from(shape::Capsule { radius: 1.0, ..Default::default() })),
+        mesh: meshes.add(Mesh::from(shape::Capsule {
+            radius: 1.0,
+            ..Default::default()
+        })),
         material: materials.add(Color::rgb(0.3, 0.5, 0.3).into()),
         transform: Transform::from_xyz(0.0, 3.0, 0.0),
         ..default()
     });
 
     commands.spawn_bundle(PbrBundle {
-        mesh: meshes.add(Mesh::from(shape::UVSphere { radius: 1.0, ..Default::default() })),
+        mesh: meshes.add(Mesh::from(shape::UVSphere {
+            radius: 1.0,
+            ..Default::default()
+        })),
         material: materials.add(Color::rgb(0.3, 0.5, 0.3).into()),
         transform: Transform::from_xyz(-3.0, 1.0, 0.0),
         ..default()
     });
 
     commands.spawn_bundle(PbrBundle {
-        mesh: meshes.add(Mesh::from(shape::Torus { radius: 1.0, ..Default::default() })),
+        mesh: meshes.add(Mesh::from(shape::Torus {
+            radius: 1.0,
+            ..Default::default()
+        })),
         material: materials.add(Color::rgb(0.3, 0.5, 0.3).into()),
         transform: Transform::from_xyz(3.0, 1.0, 0.0),
         ..default()
@@ -66,16 +75,12 @@ fn orbit_camera(mut query: Query<&mut Transform, With<Camera3d>>, time: Res<Time
 
     let t = time.time_since_startup().as_secs_f64();
     for mut transform in query.iter_mut() {
-        // TODO transform is currently broken
-        *transform = Transform::from_matrix(Mat4::look_at_rh(
-            Vec3::new(
-                (t * ROTATION_SPEED).cos() as f32 * CAMERA_DISTANCE,
-                CAMERA_DISTANCE,
-                (t * ROTATION_SPEED).sin() as f32 * CAMERA_DISTANCE,
-            ),
-            Vec3::ZERO,
-            Vec3::Y,
-        ));
+        *transform = Transform::from_xyz(
+            (t * ROTATION_SPEED).cos() as f32 * CAMERA_DISTANCE,
+            CAMERA_DISTANCE,
+            (t * ROTATION_SPEED).sin() as f32 * CAMERA_DISTANCE,
+        )
+        .looking_at(Vec3::ZERO, Vec3::Y);
     }
 }
 
