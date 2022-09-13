@@ -1,0 +1,22 @@
+[package]
+name = "bevy-3d-helpers"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+bevy = { version = "0.8.1", features = ["wayland", "bevy_render"] }
+bevy_obj = "0.8.0"
+bytemuck = { version = "1.12.1", features = ["derive"] }
+vulkano = { version = "0.30.0", features = ["nalgebra"] }
+vulkano-shaders = "0.30.0"
+vulkano-win = "0.30.0"
+winit = "0.26.0"
+
+[profile.dev.package."*"]
+opt-level = 3
+
+[features]
+default = ["fast_compile"]
+fast_compile = ["bevy/dynamic"]
