@@ -1,3 +1,4 @@
+
 use std::sync::Arc;
 
 use bevy::{
@@ -30,6 +31,7 @@ pub enum WindowSetting {
     SetMouseGrab(bool),
 }
 
+#[allow(clippy::type_complexity)]
 fn update_meshes(
     mut commands: Commands,
     query: Query<(Entity, &Handle<Mesh>), Or<(Changed<Handle<Mesh>>, Without<DisplayMesh>)>>,
@@ -52,7 +54,7 @@ fn update_meshes(
                 .unwrap();
             assert_eq!(positions.len(), normals.len());
 
-            let vertices = positions.into_iter().zip(normals).map(|(&p, &n)| Vertex {
+            let vertices = positions.iter().zip(normals).map(|(&p, &n)| Vertex {
                 position: p,
                 normal: n,
             });

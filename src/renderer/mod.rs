@@ -97,7 +97,7 @@ impl VulkanContext {
         }
 
         let surface =
-            vulkano_win::create_surface_from_winit(window.clone(), instance.clone()).unwrap();
+            vulkano_win::create_surface_from_winit(window, instance.clone()).unwrap();
         let dimensions = surface.window().inner_size().into();
 
         let format = Format::B8G8R8A8_SRGB;
@@ -328,7 +328,7 @@ impl VulkanContext {
         self.swapchain = new_swapchain;
         self.swapchain_images = new_images
             .into_iter()
-            .map(|image| ImageView::new_default(image))
+            .map(ImageView::new_default)
             .collect::<Result<_, _>>()
             .unwrap();
 

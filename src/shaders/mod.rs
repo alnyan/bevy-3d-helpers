@@ -1,3 +1,5 @@
+#![allow(clippy::needless_question_mark)]
+
 pub mod vs {
     vulkano_shaders::shader! {
         ty: "vertex",

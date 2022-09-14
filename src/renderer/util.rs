@@ -37,10 +37,16 @@ pub type SwapchainCreateOutput = (
     Vec<Arc<ImageView<SwapchainImage<WindowHandle>>>>,
 );
 
-pub fn select_physical_device<'b, T: SafeBorrow<Window>>(
-    instance: &'b Arc<Instance>,
+pub type FramebufferCreateOutput = (
+    Vec<Arc<Framebuffer>>,
+    Arc<ImageView<AttachmentImage>>,
+    Arc<ImageView<AttachmentImage>>,
+);
+
+pub fn select_physical_device<T: SafeBorrow<Window>>(
+    instance: &Arc<Instance>,
     surface: Arc<Surface<T>>,
-) -> (PhysicalDevice<'b>, QueueFamily<'b>) {
+) -> (PhysicalDevice, QueueFamily) {
     PhysicalDevice::enumerate(instance)
         .filter_map(|p| {
             p.queue_families()
@@ -89,7 +95,7 @@ pub fn create_swapchain(
 
     let swapchain_images = images
         .into_iter()
-        .map(|image| ImageView::new_default(image))
+        .map(ImageView::new_default)
         .collect::<Result<Vec<_>, _>>()
         .unwrap();
 
@@ -107,12 +113,8 @@ pub fn create_viewport(dimensions: [u32; 2]) -> Viewport {
 pub fn create_framebuffers(
     render_pass: Arc<RenderPass>,
     device: Arc<Device>,
-    swapchain_images: &Vec<Arc<ImageView<SwapchainImage<WindowHandle>>>>,
-) -> (
-    Vec<Arc<Framebuffer>>,
-    Arc<ImageView<AttachmentImage>>,
-    Arc<ImageView<AttachmentImage>>,
-) {
+    swapchain_images: &[Arc<ImageView<SwapchainImage<WindowHandle>>>],
+) -> FramebufferCreateOutput {
     let dimensions = swapchain_images[0].dimensions().width_height();
     let depth_view = ImageView::new_default(
         AttachmentImage::transient_multisampled(
@@ -127,7 +129,7 @@ pub fn create_framebuffers(
 
     let color_view = ImageView::new_default(
         AttachmentImage::transient_multisampled(
-            device.clone(),
+            device,
             dimensions,
             SampleCount::Sample4,
             swapchain_images[0].format().unwrap(),
@@ -161,7 +163,7 @@ pub fn create_pipeline(
     device: Arc<Device>,
 ) -> Arc<GraphicsPipeline> {
     let pipeline = GraphicsPipeline::start()
-        .render_pass(Subpass::from(render_pass.clone(), 0).unwrap())
+        .render_pass(Subpass::from(render_pass, 0).unwrap())
         .vertex_input_state(BuffersDefinition::new().vertex::<Vertex>())
         .input_assembly_state(InputAssemblyState::new())
         .multisample_state(MultisampleState {
@@ -174,7 +176,7 @@ pub fn create_pipeline(
             viewport,
         )))
         .depth_stencil_state(DepthStencilState::simple_depth_test())
-        .build(device.clone())
+        .build(device)
         .unwrap();
 
     pipeline

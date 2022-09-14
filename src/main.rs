@@ -79,7 +79,7 @@ fn setup(
 }
 
 fn main() {
-    IoTaskPool::init(|| TaskPool::new());
+    IoTaskPool::init(TaskPool::new);
 
     App::new()
         .add_plugin(LogPlugin)
