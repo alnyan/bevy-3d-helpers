@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use bevy::{
     math::Mat4,
-    prelude::{Transform, World, Time},
+    prelude::{Transform, World},
 };
 use vulkano::{
     buffer::{BufferUsage, CpuBufferPool, TypedBufferAccess},

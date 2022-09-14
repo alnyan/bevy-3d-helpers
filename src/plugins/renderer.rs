@@ -1,26 +1,34 @@
 use std::sync::Arc;
 
 use bevy::{
+    input::{keyboard::KeyboardInput, mouse::MouseMotion},
+    math::Vec2,
     pbr::StandardMaterial,
     prelude::{
-        info, AddAsset, App, Assets, Changed, Commands, Entity, Events, Handle, Mesh, Or, Plugin,
-        Query, Res, Without,
+        info, AddAsset, App, Assets, Changed, Commands, CoreStage, Entity, EventReader, Events,
+        Handle, Mesh, Or, Plugin, Query, Res, Without,
     },
-    window::{WindowCreated, WindowId, WindowResized, Windows},
+    window::{WindowCreated, WindowId, WindowResized},
 };
 use vulkano::device::Queue;
 use winit::{
-    event::WindowEvent,
+    event::{DeviceEvent, WindowEvent},
     event_loop::{ControlFlow, EventLoop},
-    window::WindowBuilder,
+    window::{Window, WindowBuilder},
 };
 
 use crate::{
+    conversion::{convert_element_state, convert_virtual_keycode},
     data::Vertex,
     renderer::{mesh::DisplayMesh, VulkanContext},
 };
 
 pub struct RendererPlugin;
+
+pub enum WindowSetting {
+    SetFullscreen(bool),
+    SetMouseGrab(bool),
+}
 
 fn update_meshes(
     mut commands: Commands,
@@ -57,6 +65,22 @@ fn update_meshes(
     }
 }
 
+fn update_window(window: Res<Arc<Window>>, mut window_setting_events: EventReader<WindowSetting>) {
+    for event in window_setting_events.iter() {
+        match event {
+            WindowSetting::SetMouseGrab(true) => {
+                window.set_cursor_visible(false);
+                window.set_cursor_grab(true).unwrap();
+            }
+            WindowSetting::SetMouseGrab(false) => {
+                window.set_cursor_visible(true);
+                window.set_cursor_grab(false).unwrap();
+            }
+            _ => (),
+        }
+    }
+}
+
 fn renderer_runner(mut app: App) {
     info!("Running");
     let event_loop = EventLoop::new();
@@ -80,9 +104,21 @@ fn renderer_runner(mut app: App) {
 
     app.update();
 
+    window.set_cursor_grab(true).unwrap();
+    window.set_cursor_visible(false);
+
     event_loop.run(move |event, _, flow| match event {
         winit::event::Event::WindowEvent { event, .. } => match event {
             WindowEvent::CloseRequested => *flow = ControlFlow::Exit,
+            WindowEvent::KeyboardInput { input, .. } => {
+                let mut keyboard_input_events = app.world.resource_mut::<Events<KeyboardInput>>();
+
+                keyboard_input_events.send(KeyboardInput {
+                    scan_code: input.scancode,
+                    key_code: input.virtual_keycode.map(convert_virtual_keycode),
+                    state: convert_element_state(input.state),
+                });
+            }
             WindowEvent::Resized(size) => {
                 let mut window_resized_events = app.world.resource_mut::<Events<WindowResized>>();
                 renderer.invalidate_surface();
@@ -94,6 +130,14 @@ fn renderer_runner(mut app: App) {
             }
             _ => *flow = ControlFlow::Poll,
         },
+        winit::event::Event::DeviceEvent {
+            event: DeviceEvent::MouseMotion { delta: (x, y) },
+            ..
+        } => {
+            let mut mouse_motion_events = app.world.resource_mut::<Events<MouseMotion>>();
+            let delta = Vec2::new(x as f32, y as f32);
+            mouse_motion_events.send(MouseMotion { delta });
+        }
         winit::event::Event::MainEventsCleared => {
             app.update();
         }
@@ -111,8 +155,10 @@ impl Plugin for RendererPlugin {
     fn build(&self, app: &mut App) {
         app.add_asset::<Mesh>()
             .add_asset::<StandardMaterial>()
+            .add_event::<WindowSetting>()
             .set_runner(renderer_runner)
-            .add_system(update_meshes);
+            .add_system_to_stage(CoreStage::PreUpdate, update_meshes)
+            .add_system_to_stage(CoreStage::PostUpdate, update_window);
     }
 
     fn name(&self) -> &str {

@@ -1,18 +1,25 @@
 use std::sync::Arc;
 
 use bevy::{
-    math::{Mat4, Vec2},
+    math::{Mat4, Vec2, Vec3, Quat},
     prelude::{
         App, Changed, Commands, Component, CoreStage, Entity, EventReader, Plugin, Query, Res,
-        SystemSet,
+        SystemSet, Transform, With, Time, KeyCode,
     },
-    window::{WindowCreated, WindowResized},
+    window::{WindowCreated, WindowResized}, input::{Input, mouse::MouseMotion},
 };
 use winit::window::Window;
 
 use crate::projection::{OrthographicProjection, PerspectiveProjection, Projection};
 
 pub struct CameraPlugin;
+pub struct FlyCameraPlugin;
+
+#[derive(Component, Default)]
+pub struct FlyCamera {
+    pitch: f32,
+    yaw: f32,
+}
 
 #[derive(Component)]
 pub struct ComputedProjection {
@@ -47,6 +54,16 @@ impl Plugin for CameraPlugin {
 
     fn name(&self) -> &str {
         "alnyan-camera"
+    }
+}
+
+impl Plugin for FlyCameraPlugin {
+    fn build(&self, app: &mut App) {
+        app.add_system_set(
+            SystemSet::new()
+                .with_system(camera_movement)
+                .with_system(camera_rotation),
+        );
     }
 }
 
@@ -100,5 +117,64 @@ fn update_camera_settings(
 ) {
     for (settings, mut computed) in query.iter_mut() {
         computed.projection = settings.compute_matrix(computed.dimensions);
+    }
+}
+
+#[inline]
+fn movement(v: Vec3, a: bool, b: bool) -> Vec3 {
+    if a {
+        v
+    } else if b {
+        -v
+    } else {
+        Vec3::ZERO
+    }
+}
+
+// TODO use action resource instead of keycode
+fn camera_movement(
+    mut query: Query<&mut Transform, With<FlyCamera>>,
+    time: Res<Time>,
+    keyboard_input: Res<Input<KeyCode>>,
+) {
+    for mut transform in query.iter_mut() {
+        let up = movement(
+            Vec3::Y,
+            keyboard_input.pressed(KeyCode::Space),
+            keyboard_input.pressed(KeyCode::LShift),
+        );
+        let forward = movement(
+            transform.forward(),
+            keyboard_input.pressed(KeyCode::W),
+            keyboard_input.pressed(KeyCode::S),
+        );
+        let right = movement(
+            transform.right(),
+            keyboard_input.pressed(KeyCode::D),
+            keyboard_input.pressed(KeyCode::A),
+        );
+
+        let v = up + forward + right;
+        if v.length() != 0.0 {
+            let wantvec = v.normalize();
+            let movevec = wantvec * time.delta_seconds() * 4.0;
+
+            transform.translation += movevec;
+        }
+    }
+}
+
+fn camera_rotation(
+    mut query: Query<(&mut Transform, &mut FlyCamera)>,
+    mut mouse_input: EventReader<MouseMotion>,
+) {
+    if let Some(motion) = mouse_input.iter().last() {
+        for (mut transform, mut camera) in query.iter_mut() {
+            camera.pitch -= motion.delta.y * 0.005;
+            camera.yaw += motion.delta.x * 0.005;
+
+            transform.rotation = Quat::from_axis_angle(Vec3::Y, -camera.yaw)
+                * Quat::from_axis_angle(Vec3::X, camera.pitch);
+        }
     }
 }

@@ -49,7 +49,7 @@ impl Projection for PerspectiveProjection {
 }
 
 impl Projection for OrthographicProjection {
-    fn compute_matrix(&self, dimensions: Vec2) -> Mat4 {
+    fn compute_matrix(&self, _dimensions: Vec2) -> Mat4 {
         Mat4::orthographic_rh(
             self.left,
             self.right,
