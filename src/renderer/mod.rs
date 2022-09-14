@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use bevy::{
     math::Mat4,
-    prelude::{Camera3d, Transform, With, World},
+    prelude::{Transform, World, Time},
 };
 use vulkano::{
     buffer::{BufferUsage, CpuBufferPool, TypedBufferAccess},
@@ -28,7 +28,7 @@ use vulkano::{
 };
 use winit::{event_loop::ControlFlow, window::Window};
 
-use crate::shaders;
+use crate::{plugins::camera::ComputedProjection, shaders};
 
 use self::mesh::DisplayMesh;
 
@@ -66,7 +66,9 @@ impl VulkanContext {
             ext_debug_utils: true,
             ..InstanceExtensions::none()
         });
-        let instance_layers = vec!["VK_LAYER_KHRONOS_validation".to_owned()];
+        let instance_layers = vec![
+            //"VK_LAYER_KHRONOS_validation".to_owned()
+        ];
         let device_extensions = DeviceExtensions {
             khr_swapchain: true,
             khr_maintenance1: true,
@@ -207,18 +209,26 @@ impl VulkanContext {
             self.need_swapchain_recreation = true;
         }
 
-        let camera = world
-            .query_filtered::<&Transform, With<Camera3d>>()
-            .single(world);
-        let projection = Mat4::perspective_rh(
-            45.0f32.to_radians(),
-            self.dimensions[0] as f32 / self.dimensions[1] as f32,
-            0.01,
-            100.0,
-        );
+        let (camera_transform, camera_projection) = match world
+            .query::<(&Transform, &ComputedProjection)>()
+            .get_single(world)
+        {
+            Ok(e) => e,
+            Err(_) => {
+                acquire_future
+                    .then_swapchain_present(self.queue.clone(), self.swapchain.clone(), image_index)
+                    .then_signal_fence_and_flush()
+                    .unwrap()
+                    .wait(None)
+                    .unwrap();
 
-        let camera_position = camera.translation;
-        let view = camera.compute_matrix().inverse();
+                return;
+            }
+        };
+
+        let camera_position = camera_transform.translation;
+        let view = camera_transform.compute_matrix().inverse();
+        let projection = camera_projection.transform_matrix();
 
         let vp_buffer = {
             let data = shaders::vs::ty::ViewProjection_Data {
@@ -244,6 +254,7 @@ impl VulkanContext {
             CommandBufferUsage::OneTimeSubmit,
         )
         .unwrap();
+
         let mut query = world.query::<(&Transform, &DisplayMesh)>();
 
         let render_pass_begin_info = RenderPassBeginInfo {

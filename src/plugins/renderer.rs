@@ -3,9 +3,10 @@ use std::sync::Arc;
 use bevy::{
     pbr::StandardMaterial,
     prelude::{
-        info, AddAsset, App, Assets, Changed, Commands, Entity, Handle, Mesh, Or, Plugin, Query,
-        Res, Without,
+        info, AddAsset, App, Assets, Changed, Commands, Entity, Events, Handle, Mesh, Or, Plugin,
+        Query, Res, Without,
     },
+    window::{WindowCreated, WindowId, WindowResized, Windows},
 };
 use vulkano::device::Queue;
 use winit::{
@@ -69,13 +70,28 @@ fn renderer_runner(mut app: App) {
 
     let mut renderer = VulkanContext::new_windowed(window.clone());
 
+    // TODO somehow interate with "Windows" resource
     app.insert_resource(window.clone())
         .insert_resource(renderer.gfx_queue().clone());
+
+    app.world.send_event(WindowCreated {
+        id: WindowId::default(),
+    });
+
+    app.update();
 
     event_loop.run(move |event, _, flow| match event {
         winit::event::Event::WindowEvent { event, .. } => match event {
             WindowEvent::CloseRequested => *flow = ControlFlow::Exit,
-            WindowEvent::Resized(_) => renderer.invalidate_surface(),
+            WindowEvent::Resized(size) => {
+                let mut window_resized_events = app.world.resource_mut::<Events<WindowResized>>();
+                renderer.invalidate_surface();
+                window_resized_events.send(WindowResized {
+                    width: size.width as f32,
+                    height: size.height as f32,
+                    id: WindowId::default(),
+                });
+            }
             _ => *flow = ControlFlow::Poll,
         },
         winit::event::Event::MainEventsCleared => {

@@ -1,15 +1,16 @@
 use bevy::{
-    asset::AssetPlugin,
+    audio::AudioPlugin,
     log::LogPlugin,
     prelude::*,
     tasks::{IoTaskPool, TaskPool},
     time::TimePlugin,
 };
 use bevy_obj::ObjPlugin;
-use plugin::RendererPlugin;
+use plugins::{camera::CameraProjection, DefaultRendererPlugins};
 
 pub mod data;
-pub mod plugin;
+pub mod plugins;
+pub mod projection;
 pub mod renderer;
 pub mod shaders;
 
@@ -63,24 +64,42 @@ fn setup(
         .insert(Transform::from_xyz(0.0, 0.0, -3.0))
         .insert(mesh2);
 
-    commands.spawn_bundle(Camera3dBundle {
-        transform: Transform::from_xyz(5.0, 5.0, 0.0),
-        ..Default::default()
-    });
+    commands
+        .spawn()
+        .insert(Transform::from_xyz(5.0, 5.0, 0.0))
+        .insert(CameraProjection::Perspective(default()));
 }
 
-fn orbit_camera(mut query: Query<&mut Transform, With<Camera3d>>, time: Res<Time>) {
+fn orbit_camera(mut query: Query<(&mut Transform, &mut CameraProjection)>, time: Res<Time>) {
     const CAMERA_DISTANCE: f32 = 10.0;
     const ROTATION_SPEED: f64 = 0.4;
 
     let t = time.time_since_startup().as_secs_f64();
-    for mut transform in query.iter_mut() {
+    for (mut transform, mut settings) in query.iter_mut() {
         *transform = Transform::from_xyz(
             (t * ROTATION_SPEED).cos() as f32 * CAMERA_DISTANCE,
             CAMERA_DISTANCE,
             (t * ROTATION_SPEED).sin() as f32 * CAMERA_DISTANCE,
         )
         .looking_at(Vec3::ZERO, Vec3::Y);
+
+        if (t / 5.0) as u64 % 2 == 0 {
+            *settings = CameraProjection::Perspective(projection::PerspectiveProjection {
+                fov: (60.0 + 20.0 * t.cos() as f32).to_radians(),
+                near: 0.01,
+                far: 100.0,
+            });
+        } else {
+            let dim = 20.0 + 10.0 * (t + 237.0).cos() as f32;
+            *settings = CameraProjection::Orthographic(projection::OrthographicProjection {
+                left: -dim,
+                right: dim,
+                bottom: -dim,
+                top: dim,
+                near: -dim,
+                far: dim + 20.0,
+            });
+        }
     }
 }
 
@@ -90,9 +109,8 @@ fn main() {
     App::new()
         .add_plugin(LogPlugin)
         .add_plugin(TimePlugin)
-        .add_plugin(AssetPlugin)
+        .add_plugins(DefaultRendererPlugins)
         .add_plugin(ObjPlugin)
-        .add_plugin(RendererPlugin)
         .add_startup_system(setup)
         .add_system(orbit_camera)
         .run();
