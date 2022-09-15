@@ -1,9 +1,9 @@
 use std::sync::Arc;
 
 use bevy::{
-    math::Vec4,
-    pbr::StandardMaterial,
-    prelude::{Assets, Color, Component, Image, Res},
+    math::UVec2,
+    prelude::{Color, Component, Handle},
+    reflect::TypeUuid,
 };
 use vulkano::{
     device::Queue,
@@ -12,52 +12,51 @@ use vulkano::{
     sync::GpuFuture,
 };
 
-#[derive(Component)]
+#[derive(Component, TypeUuid)]
+#[uuid = "de491a16-cf4c-4ef9-8f02-0f7837b4dea8"]
 pub struct DisplayMaterial {
     pub k_diffuse: Color,
-    pub k_diffuse_map: Option<Arc<ImageView<ImmutableImage>>>,
+    pub k_diffuse_map: Option<Handle<TextureImage>>,
 }
 
-impl DisplayMaterial {
-    pub fn from_standard_material(
-        material: &StandardMaterial,
-        images: &Res<Assets<Image>>,
-        queue: Arc<Queue>,
-    ) -> Option<Self> {
-        let k_diffuse_map = if let Some(handle) = &material.base_color_texture {
-            eprintln!("Uploading a texture");
+#[derive(Component, TypeUuid)]
+#[uuid = "e42d2fc2-aad3-4b25-a50e-dd2232099d4a"]
+pub struct TextureImage {
+    pub data: Vec<u8>,
+    pub format: Format,
+    pub dimensions: UVec2,
+    pub image: Option<Arc<ImageView<ImmutableImage>>>,
+}
 
-            if let Some(src_image) = images.get(handle) {
-                let dim = src_image.size();
-                let (image, init) = ImmutableImage::from_iter(
-                    src_image.data.clone(),
-                    ImageDimensions::Dim2d {
-                        width: dim.x as u32,
-                        height: dim.y as u32,
-                        array_layers: 1,
-                    },
-                    MipmapsCount::One,
-                    Format::R8G8B8A8_UNORM,
-                    queue,
-                )
-                .unwrap();
+impl TextureImage {
+    pub fn from_bytes(data: &[u8], format: Format, dimensions: UVec2) -> Self {
+        Self {
+            data: Vec::from(data),
+            dimensions,
+            format,
+            image: None,
+        }
+    }
 
-                init.then_signal_fence_and_flush()
-                    .unwrap()
-                    .wait(None)
-                    .unwrap();
+    pub fn upload_to_gpu(&mut self, queue: Arc<Queue>) {
+        let (image, init) = ImmutableImage::from_iter(
+            self.data.clone(),
+            ImageDimensions::Dim2d {
+                width: self.dimensions.x,
+                height: self.dimensions.y,
+                array_layers: 1,
+            },
+            MipmapsCount::One,
+            Format::R8G8B8A8_UNORM,
+            queue,
+        )
+        .unwrap();
 
-                Some(ImageView::new_default(image).unwrap())
-            } else {
-                return None;
-            }
-        } else {
-            None
-        };
+        init.then_signal_fence_and_flush()
+            .unwrap()
+            .wait(None)
+            .unwrap();
 
-        Some(Self {
-            k_diffuse: material.base_color,
-            k_diffuse_map,
-        })
+        self.image = Some(ImageView::new_default(image).unwrap());
     }
 }

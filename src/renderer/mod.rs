@@ -2,8 +2,7 @@ use std::sync::Arc;
 
 use bevy::{
     math::Mat4,
-    pbr::StandardMaterial,
-    prelude::{Assets, Handle, Image, Transform, World},
+    prelude::{Assets, Transform, World},
 };
 use vulkano::{
     buffer::{BufferUsage, CpuBufferPool, TypedBufferAccess},
@@ -35,7 +34,10 @@ use winit::{event_loop::ControlFlow, window::Window};
 
 use crate::{plugins::camera::ComputedProjection, shaders};
 
-use self::{mesh::DisplayMesh, material::DisplayMaterial};
+use self::{
+    material::{DisplayMaterial, TextureImage},
+    mesh::DisplayMesh,
+};
 
 pub mod material;
 pub mod mesh;
@@ -326,12 +328,12 @@ impl VulkanContext {
                 vp_set,
             );
 
-        let mut query =
-            world.query::<(&Transform, &DisplayMesh, Option<&DisplayMaterial>)>();
+        let mut query = world.query::<(&Transform, &DisplayMesh, Option<&DisplayMaterial>)>();
         for (transform, mesh, material) in query.iter(world) {
             let model_matrix: Mat4 = transform.compute_matrix();
 
             let texture;
+            let textures = world.resource::<Assets<TextureImage>>();
             let material_buffer = {
                 let data;
 
@@ -340,8 +342,13 @@ impl VulkanContext {
                         k_diffuse: material.k_diffuse.as_rgba_f32(),
                     };
 
-                    if let Some(k_diffuse_map) = &material.k_diffuse_map {
-                        texture = k_diffuse_map.clone();
+                    if let Some(k_diffuse_map) = material
+                        .k_diffuse_map
+                        .as_ref()
+                        .and_then(|handle| textures.get(handle))
+                        .and_then(|image| image.image.clone())
+                    {
+                        texture = k_diffuse_map;
                     } else {
                         texture = self.dummy_texture.clone();
                     }

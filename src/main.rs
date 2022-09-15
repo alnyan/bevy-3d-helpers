@@ -3,18 +3,19 @@ use bevy::{
     prelude::*,
     scene::ScenePlugin,
     tasks::{IoTaskPool, TaskPool},
-    time::TimePlugin, render::texture::ImagePlugin,
+    time::TimePlugin,
 };
 use bevy_obj::ObjPlugin;
 use bevy_rapier3d::{
     plugin::{NoUserData, RapierPhysicsPlugin},
-    prelude::{Collider, RigidBody, Velocity, Friction, RapierDebugRenderPlugin},
+    prelude::{Collider, Friction, RigidBody, Velocity},
 };
 use plugins::{
     camera::{CameraProjection, FlyCamera, FlyCameraPlugin},
     renderer::WindowSetting,
     DefaultRendererPlugins,
 };
+use renderer::material::DisplayMaterial;
 
 pub mod conversion;
 pub mod data;
@@ -27,52 +28,19 @@ fn setup(
     mut commands: Commands,
     asset_server: ResMut<AssetServer>,
     mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
     mut window_setting_events: ResMut<Events<WindowSetting>>,
 ) {
-    let mesh2 = asset_server.load::<Mesh, _>("model2.obj");
-
-    // commands.spawn_bundle(PbrBundle {
-    //     mesh: meshes.add(Mesh::from(shape::Capsule {
-    //         radius: 1.0,
-    //         ..Default::default()
-    //     })),
-    //     material: materials.add(Color::rgb(0.3, 0.5, 0.3).into()),
-    //     transform: Transform::from_xyz(0.0, 3.0, 0.0),
-    //     ..default()
-    // });
-
-    // commands.spawn_bundle(PbrBundle {
-    //     mesh: meshes.add(Mesh::from(shape::UVSphere {
-    //         radius: 1.0,
-    //         ..Default::default()
-    //     })),
-    //     material: materials.add(Color::rgb(0.3, 0.5, 0.3).into()),
-    //     transform: Transform::from_xyz(-3.0, 1.0, 0.0),
-    //     ..default()
-    // });
-
-    // commands.spawn_bundle(PbrBundle {
-    //     mesh: meshes.add(Mesh::from(shape::Torus {
-    //         radius: 1.0,
-    //         ..Default::default()
-    //     })),
-    //     material: materials.add(Color::rgb(0.3, 0.5, 0.3).into()),
-    //     transform: Transform::from_xyz(3.0, 1.0, 0.0),
-    //     ..default()
-    // });
-
     let texture0 = asset_server.load("texture0.png");
+    let texture1 = asset_server.load("texture1.png");
 
     commands
-        .spawn_bundle(PbrBundle {
-            mesh: meshes.add(Mesh::from(shape::Plane { size: 50.0 })),
-            material: materials.add(StandardMaterial {
-                base_color_texture: Some(texture0),
-                ..Default::default()
-            }),
-            transform: Transform::from_xyz(0.0, -1.0, 0.0),
-            ..default()
+        .spawn()
+        .insert(meshes.add(Mesh::from(shape::Plane { size: 50.0 })))
+        .insert(Transform::from_xyz(0.0, -1.0, 0.0))
+        .insert(GlobalTransform::identity())
+        .insert(DisplayMaterial {
+            k_diffuse: Color::WHITE,
+            k_diffuse_map: Some(texture0),
         })
         .insert(RigidBody::Fixed)
         .insert(Collider::cuboid(50.0, 0.001, 50.0));
@@ -90,13 +58,15 @@ fn setup(
         let k_b = rand::random::<f32>();
 
         commands
-            .spawn_bundle(PbrBundle {
-                mesh: meshes.add(Mesh::from(shape::Cube { size: r })),
-                material: materials.add(Color::rgb(k_r, k_g, k_b).into()),
-                transform: Transform::from_xyz(dx, y, dz).with_rotation(
-                    Quat::from_axis_angle(Vec3::Y, ay) * Quat::from_axis_angle(Vec3::X, ax),
-                ),
-                ..Default::default()
+            .spawn()
+            .insert(meshes.add(Mesh::from(shape::Cube { size: r })))
+            .insert(Transform::from_xyz(dx, y, dz).with_rotation(
+                Quat::from_axis_angle(Vec3::Y, ay) * Quat::from_axis_angle(Vec3::X, ax),
+            ))
+            .insert(GlobalTransform::identity())
+            .insert(DisplayMaterial {
+                k_diffuse: Color::rgb(k_r, k_g, k_b),
+                k_diffuse_map: Some(texture1.clone()),
             })
             .insert(RigidBody::Dynamic)
             .insert(Velocity::zero())
@@ -120,7 +90,6 @@ fn main() {
         .add_plugin(LogPlugin)
         .add_plugin(TimePlugin)
         .add_plugins(DefaultRendererPlugins)
-        .add_plugin(ImagePlugin)
         .add_plugin(ScenePlugin)
         .add_plugin(FlyCameraPlugin)
         .add_plugin(ObjPlugin)

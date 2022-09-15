@@ -3,6 +3,7 @@
 layout(location = 0) out vec4 f_color;
 
 layout(location = 0) in vec3 m_normal_ws;
+layout(location = 1) in vec2 m_tex_coords;
 
 layout(set = 0, binding = 0) uniform ViewProjection_Data {
     mat4 view;
@@ -23,7 +24,7 @@ void main() {
     vec3 k_diffuse = u_material.k_diffuse.rgb;
     float alpha = u_material.k_diffuse.a;
 
-    k_diffuse *= texture(u_diffuse_map, vec2(0.0)).rgb;
+    k_diffuse *= texture(u_diffuse_map, m_tex_coords).rgb;
 
     vec3 m_light_reflection_ws = reflect(light_direction, m_normal_ws);
 

@@ -3,12 +3,11 @@ use std::sync::Arc;
 use bevy::{
     input::{keyboard::KeyboardInput, mouse::MouseMotion},
     math::Vec2,
-    pbr::StandardMaterial,
     prelude::{
-        info, AddAsset, App, Assets, Changed, Commands, CoreStage, Entity, EventReader, Events,
-        Handle, Image, Mesh, Or, Plugin, Query, Res, SystemSet, Without,
+        debug, AddAsset, App, Assets, Changed, Commands, CoreStage, Entity, EventReader, Events,
+        Handle, Mesh, Or, Plugin, Query, Res, SystemSet, Without,
     },
-    window::{WindowCreated, WindowId, WindowResized},
+    window::{WindowCreated, WindowId, WindowResized}, render::mesh::VertexAttributeValues,
 };
 use vulkano::device::Queue;
 use winit::{
@@ -20,7 +19,11 @@ use winit::{
 use crate::{
     conversion::{convert_element_state, convert_virtual_keycode},
     data::Vertex,
-    renderer::{material::DisplayMaterial, mesh::DisplayMesh, VulkanContext},
+    renderer::{
+        material::{DisplayMaterial, TextureImage},
+        mesh::DisplayMesh,
+        VulkanContext,
+    },
 };
 
 pub struct RendererPlugin;
@@ -28,33 +31,6 @@ pub struct RendererPlugin;
 pub enum WindowSetting {
     SetFullscreen(bool),
     SetMouseGrab(bool),
-}
-
-fn update_materials(
-    mut commands: Commands,
-    query: Query<
-        (Entity, &Handle<StandardMaterial>),
-        Or<(Changed<Handle<StandardMaterial>>, Without<DisplayMaterial>)>,
-    >,
-    materials: Res<Assets<StandardMaterial>>,
-    images: Res<Assets<Image>>,
-    queue: Res<Arc<Queue>>,
-) {
-    for (entity, handle) in query.iter() {
-        if let Some(material) = materials.get(handle) {
-            info!("Uploading a material for {:?}", entity);
-
-            let dmaterial = DisplayMaterial::from_standard_material(
-                material,
-                &images,
-                queue.clone()
-            );
-
-            if let Some(dmaterial) = dmaterial {
-                commands.entity(entity).insert(dmaterial);
-            }
-        }
-    }
 }
 
 #[allow(clippy::type_complexity)]
@@ -66,13 +42,18 @@ fn update_meshes(
 ) {
     for (entity, mesh) in query.iter() {
         if let Some(mesh) = meshes.get(mesh) {
-            info!("Uploading a mesh for {:?}", entity);
+            debug!("Uploading a mesh for {:?}", entity);
 
             let positions = mesh
                 .attribute(Mesh::ATTRIBUTE_POSITION)
                 .unwrap()
                 .as_float3()
                 .unwrap();
+            let tex_coords = mesh.attribute(Mesh::ATTRIBUTE_UV_0).unwrap();
+            let tex_coords = match tex_coords {
+                VertexAttributeValues::Float32x2(v) => v,
+                _ => panic!("Texture coordinates are not in float x2 format")
+            };
             let normals = mesh
                 .attribute(Mesh::ATTRIBUTE_NORMAL)
                 .unwrap()
@@ -80,10 +61,12 @@ fn update_meshes(
                 .unwrap();
             assert_eq!(positions.len(), normals.len());
 
-            let vertices = positions.iter().zip(normals).map(|(&p, &n)| Vertex {
-                position: p,
-                normal: n,
-            });
+            let vertices =
+                itertools::izip!(positions, tex_coords, normals).map(|(&p, &t, &n)| Vertex {
+                    position: p,
+                    tex_coords: t,
+                    normal: n,
+                });
             let indices: Vec<u32> = mesh.indices().unwrap().iter().map(|p| p as u32).collect();
 
             let dmesh = DisplayMesh::new(vertices, indices, queue.clone());
@@ -110,7 +93,7 @@ fn update_window(window: Res<Arc<Window>>, mut window_setting_events: EventReade
 }
 
 fn renderer_runner(mut app: App) {
-    info!("Running");
+    debug!("Running");
     let event_loop = EventLoop::new();
     let window = Arc::new(
         WindowBuilder::new()
@@ -182,15 +165,13 @@ fn renderer_runner(mut app: App) {
 impl Plugin for RendererPlugin {
     fn build(&self, app: &mut App) {
         app.add_asset::<Mesh>()
-            .add_asset::<Image>()
-            .add_asset::<StandardMaterial>()
+            .add_asset::<TextureImage>()
+            .add_asset::<DisplayMaterial>()
             .add_event::<WindowSetting>()
             .set_runner(renderer_runner)
             .add_system_set_to_stage(
                 CoreStage::PreUpdate,
-                SystemSet::new()
-                    .with_system(update_meshes)
-                    .with_system(update_materials),
+                SystemSet::new().with_system(update_meshes),
             )
             .add_system_to_stage(CoreStage::PostUpdate, update_window);
     }
