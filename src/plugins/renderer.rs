@@ -1,4 +1,3 @@
-
 use std::sync::Arc;
 
 use bevy::{
@@ -7,7 +6,7 @@ use bevy::{
     pbr::StandardMaterial,
     prelude::{
         info, AddAsset, App, Assets, Changed, Commands, CoreStage, Entity, EventReader, Events,
-        Handle, Mesh, Or, Plugin, Query, Res, Without,
+        Handle, Image, Mesh, Or, Plugin, Query, Res, SystemSet, Without,
     },
     window::{WindowCreated, WindowId, WindowResized},
 };
@@ -21,7 +20,7 @@ use winit::{
 use crate::{
     conversion::{convert_element_state, convert_virtual_keycode},
     data::Vertex,
-    renderer::{mesh::DisplayMesh, VulkanContext},
+    renderer::{material::DisplayMaterial, mesh::DisplayMesh, VulkanContext},
 };
 
 pub struct RendererPlugin;
@@ -29,6 +28,33 @@ pub struct RendererPlugin;
 pub enum WindowSetting {
     SetFullscreen(bool),
     SetMouseGrab(bool),
+}
+
+fn update_materials(
+    mut commands: Commands,
+    query: Query<
+        (Entity, &Handle<StandardMaterial>),
+        Or<(Changed<Handle<StandardMaterial>>, Without<DisplayMaterial>)>,
+    >,
+    materials: Res<Assets<StandardMaterial>>,
+    images: Res<Assets<Image>>,
+    queue: Res<Arc<Queue>>,
+) {
+    for (entity, handle) in query.iter() {
+        if let Some(material) = materials.get(handle) {
+            info!("Uploading a material for {:?}", entity);
+
+            let dmaterial = DisplayMaterial::from_standard_material(
+                material,
+                &images,
+                queue.clone()
+            );
+
+            if let Some(dmaterial) = dmaterial {
+                commands.entity(entity).insert(dmaterial);
+            }
+        }
+    }
 }
 
 #[allow(clippy::type_complexity)]
@@ -156,10 +182,16 @@ fn renderer_runner(mut app: App) {
 impl Plugin for RendererPlugin {
     fn build(&self, app: &mut App) {
         app.add_asset::<Mesh>()
+            .add_asset::<Image>()
             .add_asset::<StandardMaterial>()
             .add_event::<WindowSetting>()
             .set_runner(renderer_runner)
-            .add_system_to_stage(CoreStage::PreUpdate, update_meshes)
+            .add_system_set_to_stage(
+                CoreStage::PreUpdate,
+                SystemSet::new()
+                    .with_system(update_meshes)
+                    .with_system(update_materials),
+            )
             .add_system_to_stage(CoreStage::PostUpdate, update_window);
     }
 

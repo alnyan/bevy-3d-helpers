@@ -2,7 +2,8 @@ use std::sync::Arc;
 
 use bevy::{
     math::Mat4,
-    prelude::{Transform, World},
+    pbr::StandardMaterial,
+    prelude::{Assets, Handle, Image, Transform, World},
 };
 use vulkano::{
     buffer::{BufferUsage, CpuBufferPool, TypedBufferAccess},
@@ -12,7 +13,10 @@ use vulkano::{
     descriptor_set::{PersistentDescriptorSet, WriteDescriptorSet},
     device::{Device, DeviceCreateInfo, DeviceExtensions, Queue, QueueCreateInfo},
     format::Format,
-    image::{view::ImageView, AttachmentImage, SwapchainImage},
+    image::{
+        view::ImageView, AttachmentImage, ImageDimensions, ImmutableImage, MipmapsCount,
+        SwapchainImage,
+    },
     instance::{
         debug::{
             DebugUtilsMessageSeverity, DebugUtilsMessageType, DebugUtilsMessenger,
@@ -22,6 +26,7 @@ use vulkano::{
     },
     pipeline::{graphics::viewport::Viewport, GraphicsPipeline, Pipeline, PipelineBindPoint},
     render_pass::{Framebuffer, RenderPass},
+    sampler::{Filter, Sampler, SamplerCreateInfo},
     shader::ShaderModule,
     swapchain::{self, Surface, Swapchain, SwapchainCreateInfo},
     sync::GpuFuture,
@@ -30,8 +35,9 @@ use winit::{event_loop::ControlFlow, window::Window};
 
 use crate::{plugins::camera::ComputedProjection, shaders};
 
-use self::mesh::DisplayMesh;
+use self::{mesh::DisplayMesh, material::DisplayMaterial};
 
+pub mod material;
 pub mod mesh;
 pub mod util;
 
@@ -55,9 +61,13 @@ pub struct VulkanContext {
     pipeline: Arc<GraphicsPipeline>,
     framebuffers: Vec<Arc<Framebuffer>>,
     vp_pool: CpuBufferPool<shaders::vs::ty::ViewProjection_Data>,
+    material_pool: CpuBufferPool<shaders::fs::ty::Material_Data>,
     model_pool: CpuBufferPool<shaders::vs::ty::Model_Data>,
     color_view: Arc<ImageView<AttachmentImage>>,
     depth_view: Arc<ImageView<AttachmentImage>>,
+
+    dummy_texture: Arc<ImageView<ImmutableImage>>,
+    sampler: Arc<Sampler>,
 }
 
 impl VulkanContext {
@@ -96,8 +106,7 @@ impl VulkanContext {
             .ok();
         }
 
-        let surface =
-            vulkano_win::create_surface_from_winit(window, instance.clone()).unwrap();
+        let surface = vulkano_win::create_surface_from_winit(window, instance.clone()).unwrap();
         let dimensions = surface.window().inner_size().into();
 
         let format = Format::B8G8R8A8_SRGB;
@@ -152,6 +161,40 @@ impl VulkanContext {
         )
         .unwrap();
 
+        let (dummy_texture, init) = {
+            let image_data = [255u8, 255u8, 255u8, 255u8];
+
+            let (image, init) = ImmutableImage::from_iter(
+                image_data,
+                ImageDimensions::Dim2d {
+                    width: 1,
+                    height: 1,
+                    array_layers: 1,
+                },
+                MipmapsCount::One,
+                Format::R8G8B8A8_UNORM,
+                queue.clone(),
+            )
+            .unwrap();
+
+            (ImageView::new_default(image).unwrap(), init)
+        };
+
+        let sampler = Sampler::new(
+            device.clone(),
+            SamplerCreateInfo {
+                mag_filter: Filter::Nearest,
+                min_filter: Filter::Nearest,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+        init.then_signal_fence_and_flush()
+            .unwrap()
+            .wait(None)
+            .unwrap();
+
         let vs = shaders::vs::load(device.clone()).unwrap();
         let fs = shaders::fs::load(device.clone()).unwrap();
         let pipeline = util::create_pipeline(
@@ -165,6 +208,7 @@ impl VulkanContext {
             util::create_framebuffers(render_pass.clone(), device.clone(), &swapchain_images);
 
         let vp_pool = CpuBufferPool::new(device.clone(), BufferUsage::uniform_buffer());
+        let material_pool = CpuBufferPool::new(device.clone(), BufferUsage::uniform_buffer());
         let model_pool = CpuBufferPool::new(device.clone(), BufferUsage::uniform_buffer());
 
         Self {
@@ -183,9 +227,13 @@ impl VulkanContext {
             fs,
             framebuffers,
             vp_pool,
+            material_pool,
             model_pool,
             depth_view,
             color_view,
+
+            dummy_texture,
+            sampler,
         }
     }
 
@@ -239,13 +287,16 @@ impl VulkanContext {
 
             self.vp_pool.next(data).unwrap()
         };
+
         let vp_set_layout = self.pipeline.layout().set_layouts().get(0).unwrap();
+        let material_set_layout = self.pipeline.layout().set_layouts().get(1).unwrap();
+        let model_set_layout = self.pipeline.layout().set_layouts().get(2).unwrap();
+
         let vp_set = PersistentDescriptorSet::new(
             vp_set_layout.clone(),
             vec![WriteDescriptorSet::buffer(0, vp_buffer)],
         )
         .unwrap();
-        let model_set_layout = self.pipeline.layout().set_layouts().get(2).unwrap();
 
         let framebuffer = &self.framebuffers[image_index];
         let mut builder = AutoCommandBufferBuilder::primary(
@@ -254,8 +305,6 @@ impl VulkanContext {
             CommandBufferUsage::OneTimeSubmit,
         )
         .unwrap();
-
-        let mut query = world.query::<(&Transform, &DisplayMesh)>();
 
         let render_pass_begin_info = RenderPassBeginInfo {
             clear_values: vec![
@@ -276,8 +325,35 @@ impl VulkanContext {
                 0,
                 vp_set,
             );
-        for (transform, mesh) in query.iter(world) {
+
+        let mut query =
+            world.query::<(&Transform, &DisplayMesh, Option<&DisplayMaterial>)>();
+        for (transform, mesh, material) in query.iter(world) {
             let model_matrix: Mat4 = transform.compute_matrix();
+
+            let texture;
+            let material_buffer = {
+                let data;
+
+                if let Some(material) = material {
+                    data = shaders::fs::ty::Material_Data {
+                        k_diffuse: material.k_diffuse.as_rgba_f32(),
+                    };
+
+                    if let Some(k_diffuse_map) = &material.k_diffuse_map {
+                        texture = k_diffuse_map.clone();
+                    } else {
+                        texture = self.dummy_texture.clone();
+                    }
+                } else {
+                    texture = self.dummy_texture.clone();
+                    data = shaders::fs::ty::Material_Data {
+                        k_diffuse: [1.0, 0.0, 0.0, 1.0],
+                    };
+                }
+
+                self.material_pool.next(data).unwrap()
+            };
             let model_buffer = {
                 let data = shaders::vs::ty::Model_Data {
                     model: model_matrix.to_cols_array_2d(),
@@ -285,6 +361,15 @@ impl VulkanContext {
 
                 self.model_pool.next(data).unwrap()
             };
+
+            let material_set = PersistentDescriptorSet::new(
+                material_set_layout.clone(),
+                vec![
+                    WriteDescriptorSet::buffer(0, material_buffer),
+                    WriteDescriptorSet::image_view_sampler(1, texture, self.sampler.clone()),
+                ],
+            )
+            .unwrap();
             let model_set = PersistentDescriptorSet::new(
                 model_set_layout.clone(),
                 vec![WriteDescriptorSet::buffer(0, model_buffer)],
@@ -295,8 +380,8 @@ impl VulkanContext {
                 .bind_descriptor_sets(
                     PipelineBindPoint::Graphics,
                     self.pipeline.layout().clone(),
-                    2,
-                    model_set,
+                    1,
+                    (material_set, model_set),
                 )
                 .bind_vertex_buffers(0, mesh.vertices().clone())
                 .bind_index_buffer(mesh.indices().clone())

@@ -16,5 +16,10 @@ pub mod fs {
     vulkano_shaders::shader! {
         ty: "fragment",
         path: "src/shaders/scene.frag",
+        types_meta: {
+            use bytemuck::{Pod, Zeroable};
+
+            #[derive(Clone, Copy, Pod, Zeroable)]
+        }
     }
 }
